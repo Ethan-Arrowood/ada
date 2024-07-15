@@ -30,21 +30,20 @@ struct url_pattern {
 	// std::string search;
 	// std::string hash;
 
-	[[nodiscard]] std::string get_protocol() const noexcept;
-	[[nodiscard]] std::string get_username() const noexcept;
-	[[nodiscard]] std::string get_password() const noexcept;
-	[[nodiscard]] std::string get_hostname() const noexcept;
-	[[nodiscard]] std::string get_port() const noexcept;
-	[[nodiscard]] std::string get_pathname() const noexcept;
-	[[nodiscard]] std::string get_search() const noexcept;
-	[[nodiscard]] std::string get_hash() const noexcept;
+	[[nodiscard]] std::string_view get_protocol() const noexcept;
+	[[nodiscard]] std::string_view get_username() const noexcept;
+	[[nodiscard]] std::string_view get_password() const noexcept;
+	[[nodiscard]] std::string_view get_hostname() const noexcept;
+	[[nodiscard]] std::string_view get_port() const noexcept;
+	[[nodiscard]] std::string_view get_pathname() const noexcept;
+	[[nodiscard]] std::string_view get_search() const noexcept;
+	[[nodiscard]] std::string_view get_hash() const noexcept;
 
 	bool hasRegExpGroups;
 
 	[[nodiscard]] bool get_hasRegExpGroups() const noexcept;
 
 	private:
-
 		struct inner {
 			ada::url_pattern::inner_component protocol;
 			ada::url_pattern::inner_component username;
@@ -62,8 +61,8 @@ struct url_pattern {
 			std::vector<std::string> group_name_list;
 			bool has_regexp_groups;
 		};
-
 };
+
 using url_pattern_input = std::variant<std::string, ada::url_pattern_init>;
 
 struct url_pattern_init {
