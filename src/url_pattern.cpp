@@ -339,9 +339,148 @@ ada::url_pattern::token_list tokenize(
   };
   while (tokenizer.index < tokenizer.input.length()) {
     tokenizer.seek_and_get_next_code_point(tokenizer.index);
-    if (tokenizer.code_point == '*') {
-      // TODO: continue implementing from here
+    if (tokenizer.code_point == U'\u002A' /* `*` */) {
+      tokenizer.add_token_with_default_position_and_length(
+          ada::url_pattern::token_type::asterisk);
+      continue;
+    }
+
+    if (tokenizer.code_point == U'\u002B' /* `+` */ ||
+        tokenizer.code_point == U'\u003F' /* `?` */) {
+      tokenizer.add_token_with_default_position_and_length(
+          ada::url_pattern::token_type::other_modifier);
+      continue;
+    }
+
+    if (tokenizer.code_point == U'\u005C' /* `\` */) {
+      if (tokenizer.index == tokenizer.input.length() - 1) {
+        tokenizer.process_tokenizing_error(tokenizer.next_index,
+                                           tokenizer.index);
+        continue;
+      }
+      int escaped_index = tokenizer.next_index;
+      tokenizer.get_next_code_point();
+      tokenizer.add_token_with_default_length(
+          ada::url_pattern::token_type::escaped_char, tokenizer.next_index,
+          escaped_index);
+      continue;
+    }
+
+    if (tokenizer.code_point == U'\u007B' /* `{` */) {
+      tokenizer.add_token_with_default_position_and_length(
+          ada::url_pattern::token_type::open);
+      continue;
+    }
+
+    if (tokenizer.code_point == U'\u007D' /* `}` */) {
+      tokenizer.add_token_with_default_position_and_length(
+          ada::url_pattern::token_type::close);
+      continue;
+    }
+
+    if (tokenizer.code_point == U'\u003A' /* `:` */) {
+      int name_position = tokenizer.next_index;
+      int name_start = name_position;
+      while (name_position < tokenizer.input.length()) {
+        tokenizer.seek_and_get_next_code_point(name_position);
+        bool first_code_point = name_position == name_start;
+        bool valid_code_point = tokenizer.is_valid_name_code_point(
+            tokenizer.code_point, first_code_point);
+        if (!valid_code_point) break;
+        name_position = tokenizer.next_index;
+      }
+      if (name_position <= name_start) {
+        tokenizer.process_tokenizing_error(name_start, tokenizer.index);
+        continue;
+      }
+      tokenizer.add_token_with_default_length(
+          ada::url_pattern::token_type::name, name_position, name_start);
+      continue;
+    }
+
+    if (tokenizer.code_point == U'\u0028' /* `(` */) {
+      int depth = 1;
+      int regexp_position = tokenizer.next_index;
+      int regexp_start = regexp_position;
+      bool error = false;
+      while (regexp_position < tokenizer.input.length()) {
+        tokenizer.seek_and_get_next_code_point(regexp_position);
+
+        if (!tokenizer.is_ascii(tokenizer.code_point)) {
+          tokenizer.process_tokenizing_error(regexp_start, tokenizer.index);
+          error = true;
+          break;
+        }
+
+        if (regexp_position == regexp_start &&
+            tokenizer.code_point == U'\u003F' /* `?` */) {
+          tokenizer.process_tokenizing_error(regexp_start, tokenizer.index);
+          error = true;
+          break;
+        }
+
+        if (tokenizer.code_point == U'\u005C' /* `\` */) {
+          if (regexp_position == tokenizer.input.length() - 1) {
+            tokenizer.process_tokenizing_error(regexp_start, tokenizer.index);
+            error = true;
+            break;
+          }
+          tokenizer.get_next_code_point();
+          if (!tokenizer.is_ascii(tokenizer.code_point)) {
+            tokenizer.process_tokenizing_error(regexp_start, tokenizer.index);
+            error = true;
+            break;
+          }
+          regexp_position = tokenizer.next_index;
+          continue;
+        }
+
+        if (tokenizer.code_point == U'\u0029' /* `)` */) {
+          depth--;
+          if (depth == 0) {
+            regexp_position = tokenizer.next_index;
+            break;
+          }
+        } else if (tokenizer.code_point == U'\u0028' /* `(` */) {
+          depth++;
+          if (regexp_position == tokenizer.input.length() - 1) {
+            tokenizer.process_tokenizing_error(regexp_start, tokenizer.index);
+            error = true;
+            break;
+          }
+          int temporary_position = tokenizer.next_index;
+          tokenizer.get_next_code_point();
+          if (tokenizer.code_point != U'\u003F' /* `?` */) {
+            tokenizer.process_tokenizing_error(regexp_start, tokenizer.index);
+            error = true;
+            break;
+          }
+          tokenizer.next_index = temporary_position;
+        }
+        regexp_position = tokenizer.next_index;
+      }
+      if (error) continue;
+      if (depth != 0) {
+        tokenizer.process_tokenizing_error(regexp_start, tokenizer.index);
+        continue;
+      }
+      int regexp_length = regexp_position - regexp_start - 1;
+      if (regexp_position == 0) {
+        tokenizer.process_tokenizing_error(regexp_start, tokenizer.index);
+        continue;
+      }
+      tokenizer.add_token(ada::url_pattern::token_type::regexp, regexp_position,
+                          regexp_start, regexp_length);
+      continue;
     };
+
+    tokenizer.add_token_with_default_position_and_length(
+        ada::url_pattern::token_type::char_);
   };
+
+  tokenizer.add_token_with_default_length(ada::url_pattern::token_type::end,
+                                          tokenizer.index, tokenizer.index);
+
+  return tokenizer.token_list;
 }
 }
