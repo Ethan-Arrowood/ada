@@ -9,6 +9,14 @@
 
 namespace ada {
 namespace url_pattern {
+
+std::u32string convert_to_u32_string(std::string_view sv) {
+  auto utf32_length = ada::idna::utf32_length_from_utf8(sv.data(), sv.size());
+  std::u32string input_u32(utf32_length, '\0');
+  ada::idna::utf8_to_utf32(sv.data(), sv.size(), input_u32.data());
+  return input_u32;
+};
+
 /**
  * https://urlpattern.spec.whatwg.org/#url-pattern-create
  * */
@@ -126,10 +134,27 @@ bool hostname_pattern_is_ipv6_address(std::string_view input) {
 };
 
 /**
+ *
+ */
+enum parser_state {
+  init,
+  protocol,
+  authority,
+  username,
+  password,
+  hostname,
+  port,
+  pathname,
+  search,
+  hash,
+  done
+};
+
+/**
  * https://urlpattern.spec.whatwg.org/#constructor-string-parser
  */
-struct constructor_string_parser {
-  std::string input;
+struct parser {
+  std::u32string input;
   ada::url_pattern::token_list token_list;
   ada::url_pattern::url_pattern_init result;
   int component_start = 0;
@@ -138,31 +163,140 @@ struct constructor_string_parser {
   int group_depth = 0;
   int hostname_ipv6_bracket_depth = 0;
   bool protocol_matches_special_scheme_flag = false;
-  enum state {
-    init,
-    protocol,
-    authority,
-    username,
-    password,
-    hostname,
-    port,
-    pathname,
-    search,
-    hash,
-    done
+  parser_state state;
+
+  void change_state(ada::url_pattern::parser_state state, int skip) {
+
   };
+
+  void rewind() {
+    this->token_index = this->component_start;
+    this->token_increment = 0;
+  };
+
+  void rewind_and_set_state(ada::url_pattern::parser_state state) {
+    this->rewind();
+    this->state = state;
+  };
+
+  ada::url_pattern::token get_safe_token(int index) {
+    if (index < this->token_list.size()) return this->token_list[index];
+    int last_index = this->token_list.size() - 1;
+    ada::url_pattern::token token = this->token_list[last_index];
+    return token;
+  };
+
+  bool is_non_special_pattern_char(int index, std::u32string_view value) {
+    ada::url_pattern::token token = get_safe_token(index);
+    if (token.value.compare(value) == 0) return false;
+    return token.type == ada::url_pattern::token_type::char_ ||
+           token.type == ada::url_pattern::token_type::escaped_char ||
+           token.type == ada::url_pattern::token_type::invalid_char;
+  };
+
+  bool is_protocol_suffix() {
+    return this->is_non_special_pattern_char(this->token_index, U":");
+  };
+
+  bool next_is_authority_slashes() {
+    return this->is_non_special_pattern_char(this->token_index + 1, U"/") &&
+           this->is_non_special_pattern_char(this->token_index + 2, U"/");
+  };
+
+  bool is_identity_terminator() {
+    return this->is_non_special_pattern_char(this->token_index, U"@");
+  };
+
+  bool is_password_prefix() {
+    return this->is_non_special_pattern_char(this->token_index, U":");
+  };
+
+  bool is_port_prefix() {
+    return this->is_non_special_pattern_char(this->token_index, U":");
+  };
+
+  bool is_pathname_prefix() {
+    return this->is_non_special_pattern_char(this->token_index, U"/");
+  };
+
+  bool is_search_prefix() {
+    if (this->is_non_special_pattern_char(this->token_index, U"?")) return true;
+
+    if (this->token_list[this->token_index].value != U"?") return false;
+
+    int previous_index = this->token_index - 1;
+    if (previous_index < 0) return true;
+    ada::url_pattern::token previous_token =
+        this->get_safe_token(previous_index);
+
+    return previous_token.type != ada::url_pattern::token_type::name &&
+           previous_token.type != ada::url_pattern::token_type::regexp &&
+           previous_token.type != ada::url_pattern::token_type::close &&
+           previous_token.type != ada::url_pattern::token_type::asterisk;
+  }
+
+  bool is_hash_prefix() {
+    return this->is_non_special_pattern_char(this->token_index, U"#");
+  }
+
+  bool is_group_open() {
+    return this->token_list[this->token_index].type ==
+           ada::url_pattern::token_type::open;
+  }
+
+  bool is_group_close() {
+    return this->token_list[this->token_index].type ==
+           ada::url_pattern::token_type::close;
+  }
+
+  bool is_ipv6_open() {
+    return this->is_non_special_pattern_char(this->token_index, U"[");
+  }
+
+  bool is_ipv6_close() {
+    return this->is_non_special_pattern_char(this->token_index, U"]");
+  }
+
+  std::u32string make_component_string() {
+    return this->input.substr(this->get_safe_token(this->component_start).index,
+                              this->token_list[this->token_index].index);
+  };
+
+  void compute_protocol_matches_special_scheme_flag() {
+    auto protocol_string = make_component_string();
+    auto protocol_component = compile_component(
+        protocol_string, canonicalize_protocol(protocol_string),
+        default_options);
+    if (protocol_component_matches_special_scheme(protocol_component)) {
+      this->protocol_matches_special_scheme_flag = true;
+    }
+  }
 };
+
+std::string_view canonicalize_protocol(std::string value) {
+  // TODO
+}
 
 /**
  * https://urlpattern.spec.whatwg.org/#parse-a-constructor-string
  */
 void parse_constructor_string(std::string_view input) {
-  ada::url_pattern::constructor_string_parser parser = {
-    input : std::string(input),
+  auto u32string_input = convert_to_u32_string(input);
+  ada::url_pattern::parser parser = {
+    input : u32string_input,
     token_list : ada::url_pattern::tokenize(
-        input, ada::url_pattern::tokenize_policy::lenient),
+        u32string_input, ada::url_pattern::tokenize_policy::lenient),
   };
-  // TODO: implement
+
+  while (parser.token_index < parser.token_list.size()) {
+    parser.token_increment = 1;
+    if (parser.token_list[parser.token_index].type ==
+        ada::url_pattern::token_type::end) {
+      if (parser.state == ada::url_pattern::parser_state::init) {
+        // rewind
+      }
+    }
+  }
 };
 
 /**
@@ -227,21 +361,23 @@ struct tokenizer {
   int next_index = 0;
   char32_t code_point = NULL;
 
-  tokenizer(std::string_view input_arg) { initialize_input(input_arg); }
+  tokenizer(std::u32string_view input_arg) {
+    input = std::u32string(input_arg);
+  }
+  tokenizer(std::u32string_view input_arg,
+            ada::url_pattern::tokenize_policy policy)
+      : policy{policy} {
+    input = std::u32string(input_arg);
+  }
+
+  tokenizer(std::string_view input_arg) {
+    input = convert_to_u32_string(input_arg);
+  }
 
   tokenizer(std::string_view input_arg,
             ada::url_pattern::tokenize_policy policy)
       : policy{policy} {
-    initialize_input(input_arg);
-  }
-
-  void initialize_input(std::string_view input_arg) {
-    auto utf32_length =
-        ada::idna::utf32_length_from_utf8(input_arg.data(), input_arg.size());
-    std::u32string input_u32(utf32_length, '\0');
-    ada::idna::utf8_to_utf32(input_arg.data(), input_arg.size(),
-                             input_u32.data());
-    input = input_u32;
+    input = convert_to_u32_string(input_arg);
   }
 
   /**
@@ -332,7 +468,7 @@ struct tokenizer {
  * https://urlpattern.spec.whatwg.org/#tokenize
  */
 ada::url_pattern::token_list tokenize(
-    std::string_view input, ada::url_pattern::tokenize_policy policy) {
+    std::u32string_view input, ada::url_pattern::tokenize_policy policy) {
   ada::url_pattern::tokenizer tokenizer = ada::url_pattern::tokenizer{
       input,
       policy,
