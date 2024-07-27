@@ -53,7 +53,7 @@ bool has_regexp_groups(ada::url_pattern::url_pattern url_pattern) {
 /**
  * https://urlpattern.spec.whatwg.org/#encoding-callback
  */
-using encoding_callback = std::string_view (*)(std::string_view);
+using encoding_callback = std::string(*)(std::string);
 
 /**
  * https://urlpattern.spec.whatwg.org/#options
@@ -165,8 +165,55 @@ struct parser {
   bool protocol_matches_special_scheme_flag = false;
   parser_state state;
 
-  void change_state(ada::url_pattern::parser_state state, int skip) {
+  void change_state(parser_state new_state, int skip) {
+		if (this->state != parser_state::init || this->state != parser_state::authority || this->state != parser_state::done) {
+			switch (this->state)
+			{
+				#define V(state) \
+					case parser_state::state: \
+						this->result.state = this->make_component_string();
+						break;
+				URL_PATTERN_COMPONENTS(V)
+				#undef V
+			default:
+				break;
+			}
+		}
 
+		if (this->state != parser_state::init && new_state != parser_state::done) {
+			if (
+				(this->state == parser_state::protocol || this->state == parser_state::authority || this->state == parser_state::username || this->state == parser_state::password) &&
+				(new_state == parser_state::port || new_state == parser_state::pathname || new_state == parser_state::search || new_state == parser_state::hash) &&
+				(this->result.hostname.empty())
+			) {
+				this->result.hostname = U"";
+			}
+
+			if (
+				(this->state == parser_state::protocol || this->state == parser_state::authority || this->state == parser_state::username || this->state == parser_state::password || this->state == parser_state::hostname || this->state == parser_state::port) &&
+				(new_state == parser_state::search || new_state == parser_state::hash) &&
+				(this->result.pathname.empty())
+			) {
+				if (this->protocol_matches_special_scheme_flag) {
+					this->result.pathname = U"/";
+				} else {
+					this->result.pathname = U"";
+				}
+			}
+
+			if (
+				(this->state == parser_state::protocol || this->state == parser_state::authority || this->state == parser_state::username || this->state == parser_state::password || this->state == parser_state::hostname || this->state == parser_state::port || this->state == parser_state::pathname) &&
+				(new_state == parser_state::hash) &&
+				(this->result.search.empty())
+			) {
+				this->result.search = U"";
+			}
+		}
+
+		this->state = new_state;
+		this->token_index += skip;
+		this->component_start = this->token_index;
+		this->token_increment = 0;
   };
 
   void rewind() {
@@ -226,13 +273,13 @@ struct parser {
 
     int previous_index = this->token_index - 1;
     if (previous_index < 0) return true;
-    ada::url_pattern::token previous_token =
+    token previous_token =
         this->get_safe_token(previous_index);
 
-    return previous_token.type != ada::url_pattern::token_type::name &&
-           previous_token.type != ada::url_pattern::token_type::regexp &&
-           previous_token.type != ada::url_pattern::token_type::close &&
-           previous_token.type != ada::url_pattern::token_type::asterisk;
+    return previous_token.type != token_type::name &&
+           previous_token.type != token_type::regexp &&
+           previous_token.type != token_type::close &&
+           previous_token.type != token_type::asterisk;
   }
 
   bool is_hash_prefix() {
@@ -273,8 +320,10 @@ struct parser {
   }
 };
 
-std::string_view canonicalize_protocol(std::string value) {
-  // TODO
+std::string canonicalize_protocol(std::u32string value) {
+  if (value.empty()) return value;
+	auto parseResult = ada::parse<ada::url>(value + "://dummy.test", nullptr);
+	return parseResult->get_protocol();
 }
 
 /**

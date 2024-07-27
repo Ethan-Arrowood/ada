@@ -14,15 +14,20 @@
 namespace ada {
 namespace url_pattern {
 
+#define URL_PATTERN_COMPONENTS(V) \
+	V(protocol) \
+	V(username) \
+	V(password) \
+	V(hostname) \
+	V(port)     \
+	V(pathname) \
+	V(search)   \
+	V(hash)     
+
 struct url_pattern {
-	ada::url_pattern::component protocol;
-	ada::url_pattern::component username;
-	ada::url_pattern::component password;
-	ada::url_pattern::component hostname;
-	ada::url_pattern::component port;
-	ada::url_pattern::component pathname;
-	ada::url_pattern::component search;
-	ada::url_pattern::component hash;
+	#define V(name) ada::url_pattern::component name;
+	  URL_PATTERN_COMPONENTS(V)
+	#undef V
 };
 
 struct component {
@@ -35,16 +40,11 @@ struct component {
 using url_pattern_input = std::variant<std::string, ada::url_pattern::url_pattern_init>;
 
 struct url_pattern_init {
-	std::string protocol;
-	std::string username;
-	std::string password;
-	std::string hostname;
-	std::string port;
-	std::string pathname;
-	std::string search;
-	std::string hash;
-	std::string baseURL;
-	void set_baseURL (const std::string& baseURL);
+	#define V(name) std::u32string name;
+	  URL_PATTERN_COMPONENTS(V)
+	#undef V
+
+	std::u32string baseURL;
 };
 
 struct url_pattern_options {
@@ -54,14 +54,9 @@ struct url_pattern_options {
 struct url_pattern_result {
 	std::vector<ada::url_pattern::url_pattern_input> inputs;
 
-	ada::url_pattern::url_pattern_component_result protocol;
-	ada::url_pattern::url_pattern_component_result username;
-	ada::url_pattern::url_pattern_component_result password;
-	ada::url_pattern::url_pattern_component_result hostname;
-	ada::url_pattern::url_pattern_component_result port;
-	ada::url_pattern::url_pattern_component_result pathname;
-	ada::url_pattern::url_pattern_component_result search;
-	ada::url_pattern::url_pattern_component_result hash;
+	#define V(name) ada::url_pattern::url_pattern_component_result name;
+	  URL_PATTERN_COMPONENTS(V)
+	#undef V
 };
 
 struct url_pattern_component_result {
